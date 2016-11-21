@@ -15,6 +15,21 @@ using Microsoft.WindowsAzure.Storage.Table;
 namespace Microsoft.Azure.Insights.Customizations.Shoebox
 {
     /// <summary>
+    /// This class extends the generic IList<MetricAvailability> to determine if it contains the timegrain of a specific MetricFilter
+    /// </summary>
+    internal static class MetricAvailbilityCollectionExtensions 
+    {
+        public static bool Contains(this IList<MetricAvailability> list, MetricFilter filter)
+        {
+            foreach (var item in list)
+            {
+                return item.TimeGrain == filter.TimeGrain;
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Base metric retriever for SAS-based metrics
     /// </summary>
     internal abstract class SasMetricRetriever : IMetricRetriever
@@ -23,15 +38,16 @@ namespace Microsoft.Azure.Insights.Customizations.Shoebox
         {
             MetricFilter filter = MetricFilterExpressionParser.Parse(filterString);
 
-            // Filter definitions by timegrain
+            // Grab all metric definitiions that contain the specific timegrain from the filter.
+            // See the extension class for implementation
             var timegraindefinitions = from d in definitions
                                        where d.MetricAvailabilities.Count > 0
-                                       && d.MetricAvailabilities[0].TimeGrain == filter.TimeGrain
+                                       && d.MetricAvailabilities.Contains(filter)
                                        select d;
 
             // Group definitions by location so we can make one request to each location
             Dictionary<MetricAvailability, MetricFilter> groups =
-                timegraindefinitions.GroupBy(d => d.MetricAvailabilities[0]).ToDictionary(g => g.Key, g => new MetricFilter()
+                timegraindefinitions.GroupBy(d => d.MetricAvailabilities.FirstOrDefault()).ToDictionary(g => g.Key, g => new MetricFilter()
                 {
                     TimeGrain = filter.TimeGrain,
                     StartTime = filter.StartTime,
@@ -39,7 +55,8 @@ namespace Microsoft.Azure.Insights.Customizations.Shoebox
                     DimensionFilters = g.Select(d =>
                         filter.DimensionFilters.FirstOrDefault(df => string.Equals(df.Name, d.Name.Value, StringComparison.OrdinalIgnoreCase))
                         ?? new MetricDimension() {Name = d.Name.Value})
-                });
+                }, new AvailabilityComparer());
+
 
 
             // Verify all groups represent shoebox metrics
